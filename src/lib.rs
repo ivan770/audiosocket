@@ -2,7 +2,11 @@
 //! https://github.com/CyCoreSystems/audiosocket/blob/master/audiosocket.go
 //! https://wiki.asterisk.org/wiki/display/AST/AudioSocket
 
-use std::{array::TryFromSliceError, convert::{TryFrom, TryInto}, io::{Cursor, Error as IoError, Read}};
+use std::{
+    array::TryFromSliceError,
+    convert::{TryFrom, TryInto},
+    io::{Cursor, Error as IoError, Read},
+};
 
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
@@ -136,13 +140,15 @@ impl<'s> TryFrom<RawMessage<'s>> for Message<'s> {
                 ))
             }
             Type::Silence => Ok(Message::Silence),
-            Type::Audio => {
-                Ok(Message::Audio(raw.payload.ok_or(AudioSocketError::EmptyPayload)?))
-            }
+            Type::Audio => Ok(Message::Audio(
+                raw.payload.ok_or(AudioSocketError::EmptyPayload)?,
+            )),
             Type::Error => {
-                if let Some(Ok(code)) = raw.payload.map(|payload| -> Result<u8, TryFromSliceError> {
-                    Ok(u8::from_be_bytes(payload.try_into()?))
-                }) {
+                if let Some(Ok(code)) =
+                    raw.payload.map(|payload| -> Result<u8, TryFromSliceError> {
+                        Ok(u8::from_be_bytes(payload.try_into()?))
+                    })
+                {
                     Ok(Message::Error(Some(
                         ErrorType::try_from_primitive(code)
                             .map_err(AudioSocketError::IncorrectErrorCode)?,
