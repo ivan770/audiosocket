@@ -5,7 +5,6 @@
 use std::{
     array::TryFromSliceError,
     convert::{TryFrom, TryInto},
-    io::{Cursor, Error as IoError, Read},
 };
 
 use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
@@ -27,7 +26,10 @@ pub enum AudioSocketError {
     IncorrectErrorCode(TryFromPrimitiveError<ErrorType>),
 
     #[error("Provided slice doesn't contain correct AudioSocket message")]
-    InvalidRawMessage(IoError),
+    InvalidRawMessage,
+
+    #[error("AudioSocket message contains invalid length")]
+    IncorrectLengthProvided(TryFromSliceError),
 }
 
 /// AudioSocket message type
@@ -83,26 +85,27 @@ pub struct RawMessage<'s> {
     payload: Option<&'s [u8]>,
 }
 
-impl<'s> TryFrom<Cursor<&'s [u8]>> for RawMessage<'s> {
+impl<'s> TryFrom<&'s [u8]> for RawMessage<'s> {
     type Error = AudioSocketError;
 
-    fn try_from(mut value: Cursor<&'s [u8]>) -> Result<Self, Self::Error> {
-        let mut buf = [0; 1];
-        value
-            .read_exact(&mut buf)
-            .map_err(AudioSocketError::InvalidRawMessage)?;
-        let message_type = Type::try_from_primitive(u8::from_be_bytes(buf))
+    fn try_from(value: &'s [u8]) -> Result<Self, Self::Error> {
+        let message_type = value
+            .get(0)
+            .ok_or(AudioSocketError::InvalidRawMessage)
+            .map(|message_type| Type::try_from_primitive(*message_type))?
             .map_err(AudioSocketError::IncorrectMessageType)?;
 
-        let mut buf = [0; 2];
-        value
-            .read_exact(&mut buf)
-            .map_err(AudioSocketError::InvalidRawMessage)?;
-        let length = u16::from_be_bytes(buf);
+        let length = value
+            .get(1..=2)
+            .ok_or(AudioSocketError::InvalidRawMessage)
+            .map(|length| -> Result<u16, TryFromSliceError> {
+                Ok(u16::from_be_bytes(length.try_into()?))
+            })?
+            .map_err(AudioSocketError::IncorrectLengthProvided)?;
 
         Ok(RawMessage {
             message_type,
-            payload: value.into_inner().get(3..usize::from(length + 3)),
+            payload: value.get(3..usize::from(length + 3)),
         })
     }
 }
