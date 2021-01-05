@@ -34,7 +34,7 @@ pub enum AudioSocketError {
 
 /// AudioSocket message type
 #[repr(u8)]
-#[derive(TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive)]
 pub enum Type {
     /// Message indicates that a connection was closed.
     ///
@@ -59,7 +59,7 @@ pub enum Type {
 
 /// Type of error, that message may contain.
 #[repr(u8)]
-#[derive(TryFromPrimitive)]
+#[derive(Debug, TryFromPrimitive)]
 pub enum ErrorType {
     /// No error is present.
     None = 0x00,
@@ -75,6 +75,7 @@ pub enum ErrorType {
 }
 
 /// AudioSocket raw message.
+#[derive(Debug)]
 pub struct RawMessage<'s> {
     /// Type of current message.
     message_type: Type,
@@ -110,6 +111,7 @@ impl<'s> TryFrom<&'s [u8]> for RawMessage<'s> {
     }
 }
 
+#[derive(Debug)]
 pub enum Message<'r> {
     /// Message indicates that a connection was closed.
     ///
