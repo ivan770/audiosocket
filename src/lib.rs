@@ -1,6 +1,46 @@
-//! References:
-//! https://github.com/CyCoreSystems/audiosocket/blob/master/audiosocket.go
-//! https://wiki.asterisk.org/wiki/display/AST/AudioSocket
+//! AudioSocket is a simple TCP-based protocol for sending and receiving real-time audio streams.
+//!
+//! This crate is a port of a [Go library](https://github.com/CyCoreSystems/audiosocket).
+//!
+//! ```
+//! use std::{convert::TryFrom, str::FromStr};
+//!
+//! use audiosocket::{Message, RawMessage, Type};
+//! use uuid::Uuid;
+//! 
+//! let recv = [
+//!     // Message contains a stream identifier.
+//!     1u8,
+//!
+//!     // Payload length is 16 bytes.
+//!     0,
+//!     16,
+//!
+//!     // Payload with UUID.
+//!     4,
+//!     54,
+//!     67,
+//!     12,
+//!     43,
+//!     2,
+//!     98,
+//!     76,
+//!     32,
+//!     50,
+//!     87,
+//!     5,
+//!     1,
+//!     33,
+//!     43,
+//!     87
+//! ];
+//!
+//! let raw_message = RawMessage::try_from(&recv[..]).unwrap();
+//! assert_eq!(*raw_message.message_type(), Type::Identifier);
+//!
+//! let message = Message::try_from(raw_message).unwrap();
+//! assert_eq!(message, Message::Identifier(Uuid::from_str("0436430c-2b02-624c-2032-570501212b57").unwrap()))
+//! ```
 
 use std::{
     array::TryFromSliceError,
@@ -11,6 +51,10 @@ use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 use uuid::{Error as UuidError, Uuid};
 
+/// Library errors.
+///
+/// Note that this list doesn't contain Asterisk errors,
+/// that are sent via AudioSocket messages (use [`ErrorType`] for that purpose).
 #[derive(Error, Debug)]
 pub enum AudioSocketError {
     #[error("Message contains empty payload, despite having type that doesn't support it")]
@@ -32,9 +76,9 @@ pub enum AudioSocketError {
     IncorrectLengthProvided(TryFromSliceError),
 }
 
-/// AudioSocket message type
+/// AudioSocket message type.
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, TryFromPrimitive)]
 pub enum Type {
     /// Message indicates that a connection was closed.
     ///
@@ -51,15 +95,12 @@ pub enum Type {
     Audio = 0x10,
 
     /// Current message possibly contains error in payload.
-    ///
-    /// Note that [reference](https://wiki.asterisk.org/wiki/display/AST/AudioSocket) doesn't contain any info
-    /// about error codes
     Error = 0xff,
 }
 
 /// Type of error, that message may contain.
 #[repr(u8)]
-#[derive(Debug, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, TryFromPrimitive)]
 pub enum ErrorType {
     /// No error is present.
     None = 0x00,
@@ -75,7 +116,7 @@ pub enum ErrorType {
 }
 
 /// AudioSocket raw message.
-#[derive(Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct RawMessage<'s> {
     /// Type of current message.
     message_type: Type,
@@ -84,6 +125,18 @@ pub struct RawMessage<'s> {
     ///
     /// May be empty, in case if message is an error.
     payload: Option<&'s [u8]>,
+}
+
+impl RawMessage<'_> {
+    /// Get [`RawMessage`] type.
+    pub fn message_type(&self) -> &Type {
+        &self.message_type
+    }
+
+    /// Get [`RawMessage`] payload.
+    pub fn payload(&self) -> &Option<&[u8]> {
+        &self.payload
+    }
 }
 
 impl<'s> TryFrom<&'s [u8]> for RawMessage<'s> {
@@ -111,7 +164,10 @@ impl<'s> TryFrom<&'s [u8]> for RawMessage<'s> {
     }
 }
 
-#[derive(Debug)]
+/// AudioSocket message.
+///
+/// You may use [`RawMessage`] to obtain one.
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Message<'r> {
     /// Message indicates that a connection was closed.
     ///

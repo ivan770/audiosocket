@@ -1,7 +1,12 @@
 [package]
 name = "audiosocket"
+description = "Package for handling AudioSocket messages"
+repository = "https://github.com/ivan770/audiosocket"
+
 version = "0.1.0"
 authors = ["ivan770 <leshenko.ivan770@gmail.com>"]
+license = "MIT"
+
 edition = "2018"
 
 [dependencies]
