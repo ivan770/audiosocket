@@ -210,14 +210,15 @@ impl<'s> TryFrom<RawMessage<'s>> for Message<'s> {
                 raw.payload.ok_or(AudioSocketError::EmptyPayload)?,
             )),
             Type::Error => {
-                if let Some(code) = raw.payload.map(|payload| -> Result<u8, TryFromSliceError> {
-                    Ok(u8::from_be_bytes(payload.try_into()?))
-                }) {
+                if let Some(code) = raw
+                    .payload
+                    .map(|payload| payload.first())
+                    .flatten()
+                    .copied()
+                {
                     Ok(Message::Error(Some(
-                        ErrorType::try_from_primitive(
-                            code.map_err(AudioSocketError::IncorrectLengthProvided)?,
-                        )
-                        .map_err(AudioSocketError::IncorrectErrorCode)?,
+                        ErrorType::try_from_primitive(code)
+                            .map_err(AudioSocketError::IncorrectErrorCode)?,
                     )))
                 } else {
                     Ok(Message::Error(None))
@@ -238,11 +239,7 @@ impl TryFrom<Message<'_>> for Vec<u8> {
                     Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + size_of::<u128>());
 
                 buf.push(Type::Identifier.into());
-
-                // Length = 16
-                buf.push(0x00);
-                buf.push(0x10);
-
+                buf.extend(&u16::try_from(size_of::<u128>()).unwrap().to_be_bytes());
                 buf.extend(id.as_bytes().iter());
 
                 Ok(buf)
@@ -252,13 +249,11 @@ impl TryFrom<Message<'_>> for Vec<u8> {
                 let mut buf = Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + a.len());
 
                 buf.push(Type::Audio.into());
-
                 buf.extend(
                     &u16::try_from(a.len())
                         .map_err(AudioSocketError::LengthIsTooLarge)?
                         .to_be_bytes(),
                 );
-
                 buf.extend(a);
 
                 Ok(buf)
