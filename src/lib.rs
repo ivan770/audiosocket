@@ -45,9 +45,11 @@
 use std::{
     array::TryFromSliceError,
     convert::{TryFrom, TryInto},
+    mem::size_of,
+    num::TryFromIntError,
 };
 
-use num_enum::{TryFromPrimitive, TryFromPrimitiveError};
+use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 use uuid::{Error as UuidError, Uuid};
 
@@ -74,11 +76,14 @@ pub enum AudioSocketError {
 
     #[error("AudioSocket message contains invalid length")]
     IncorrectLengthProvided(TryFromSliceError),
+
+    #[error("Unable to cast payload length to 16-bit integer")]
+    LengthIsTooLarge(TryFromIntError),
 }
 
 /// AudioSocket message type.
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 pub enum Type {
     /// Message indicates that a connection was closed.
     ///
@@ -100,7 +105,7 @@ pub enum Type {
 
 /// Type of error, that message may contain.
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, PartialEq, Eq, TryFromPrimitive)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, IntoPrimitive, TryFromPrimitive)]
 pub enum ErrorType {
     /// No error is present.
     None = 0x00,
@@ -219,5 +224,142 @@ impl<'s> TryFrom<RawMessage<'s>> for Message<'s> {
                 }
             }
         }
+    }
+}
+
+impl TryFrom<Message<'_>> for Vec<u8> {
+    type Error = AudioSocketError;
+
+    fn try_from(message: Message<'_>) -> Result<Self, Self::Error> {
+        match message {
+            Message::Terminate => Ok(Vec::from([Type::Terminate.into(), 0x00, 0x00])),
+            Message::Identifier(id) => {
+                let mut buf =
+                    Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + size_of::<u128>());
+
+                buf.push(Type::Identifier.into());
+
+                // Length = 16
+                buf.push(0x00);
+                buf.push(0x10);
+
+                buf.extend(id.as_bytes().iter());
+
+                Ok(buf)
+            }
+            Message::Silence => Ok(Vec::from([Type::Silence.into(), 0x00, 0x00])),
+            Message::Audio(a) => {
+                let mut buf = Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + a.len());
+
+                buf.push(Type::Audio.into());
+
+                buf.extend(
+                    &u16::try_from(a.len())
+                        .map_err(AudioSocketError::LengthIsTooLarge)?
+                        .to_be_bytes(),
+                );
+
+                buf.extend(a);
+
+                Ok(buf)
+            }
+            Message::Error(e) => match e {
+                Some(error) => Ok(Vec::from([Type::Error.into(), 0x00, 0x01, error.into()])),
+                None => Ok(Vec::from([Type::Error.into(), 0x00, 0x00])),
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        convert::{TryFrom, TryInto},
+        str::FromStr,
+    };
+
+    use uuid::Uuid;
+
+    use crate::{ErrorType, Message, RawMessage};
+
+    #[test]
+    fn terminate_cast_test() {
+        let terminate = [0u8, 0u8, 0u8];
+
+        let msg: Message = RawMessage::try_from(&terminate[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(msg, Message::Terminate);
+        assert_eq!(
+            TryInto::<Vec<u8>>::try_into(msg).unwrap(),
+            terminate.to_vec()
+        );
+    }
+
+    #[test]
+    fn identifier_cast_test() {
+        let identifier = [
+            1u8, 0, 16, 4, 54, 67, 12, 43, 2, 98, 76, 32, 50, 87, 5, 1, 33, 43, 87,
+        ];
+
+        let msg: Message = RawMessage::try_from(&identifier[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(
+            msg,
+            Message::Identifier(Uuid::from_str("0436430c-2b02-624c-2032-570501212b57").unwrap())
+        );
+        assert_eq!(
+            TryInto::<Vec<u8>>::try_into(msg).unwrap(),
+            identifier.to_vec()
+        );
+    }
+
+    #[test]
+    fn silence_cast_test() {
+        let silence = [2u8, 0u8, 0u8];
+
+        let msg: Message = RawMessage::try_from(&silence[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(msg, Message::Silence);
+        assert_eq!(TryInto::<Vec<u8>>::try_into(msg).unwrap(), silence.to_vec());
+    }
+
+    #[test]
+    fn audio_cast_test() {
+        let audio = [
+            0x10, 0u8, 8u8,
+            // Though those are not valid sound bytes, we can still use them,
+            // as we don't check for audio validity.
+            0, 1, 2, 3, 4, 5, 6, 7,
+        ];
+
+        let msg: Message = RawMessage::try_from(&audio[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(msg, Message::Audio(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        assert_eq!(TryInto::<Vec<u8>>::try_into(msg).unwrap(), audio.to_vec());
+    }
+
+    #[test]
+    fn error_cast_test() {
+        let error = [0xffu8, 0, 1, 1];
+
+        let msg: Message = RawMessage::try_from(&error[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(msg, Message::Error(Some(ErrorType::Hangup)));
+        assert_eq!(TryInto::<Vec<u8>>::try_into(msg).unwrap(), error.to_vec());
     }
 }
