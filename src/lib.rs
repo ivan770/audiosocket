@@ -7,7 +7,7 @@
 //!
 //! use audiosocket::{Message, RawMessage, Type};
 //! use uuid::Uuid;
-//! 
+//!
 //! let recv = [
 //!     // Message contains a stream identifier.
 //!     1u8,
@@ -205,14 +205,14 @@ impl<'s> TryFrom<RawMessage<'s>> for Message<'s> {
                 raw.payload.ok_or(AudioSocketError::EmptyPayload)?,
             )),
             Type::Error => {
-                if let Some(Ok(code)) =
-                    raw.payload.map(|payload| -> Result<u8, TryFromSliceError> {
-                        Ok(u8::from_be_bytes(payload.try_into()?))
-                    })
-                {
+                if let Some(code) = raw.payload.map(|payload| -> Result<u8, TryFromSliceError> {
+                    Ok(u8::from_be_bytes(payload.try_into()?))
+                }) {
                     Ok(Message::Error(Some(
-                        ErrorType::try_from_primitive(code)
-                            .map_err(AudioSocketError::IncorrectErrorCode)?,
+                        ErrorType::try_from_primitive(
+                            code.map_err(AudioSocketError::IncorrectLengthProvided)?,
+                        )
+                        .map_err(AudioSocketError::IncorrectErrorCode)?,
                     )))
                 } else {
                     Ok(Message::Error(None))
