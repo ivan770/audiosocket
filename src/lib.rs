@@ -96,7 +96,7 @@ pub enum Type {
     /// Message indicates presence of silence on the line.
     Silence = 0x02,
 
-    /// Payload of current message contains audio itself.
+    /// Payload of current message possibly contains audio itself.
     Audio = 0x10,
 
     /// Current message possibly contains error in payload.
@@ -132,7 +132,17 @@ pub struct RawMessage<'s> {
     payload: Option<&'s [u8]>,
 }
 
-impl RawMessage<'_> {
+impl<'s> RawMessage<'s> {
+    /// Create [`RawMessage`] from raw parts.
+    ///
+    /// You have to ensure that payload size is <= `length`.
+    pub fn from_parts(message_type: Type, payload: Option<&'s [u8]>) -> Self {
+        RawMessage {
+            message_type,
+            payload
+        }
+    }
+
     /// Get [`RawMessage`] type.
     pub fn message_type(&self) -> &Type {
         &self.message_type
@@ -162,10 +172,7 @@ impl<'s> TryFrom<&'s [u8]> for RawMessage<'s> {
             })?
             .map_err(AudioSocketError::IncorrectLengthProvided)?;
 
-        Ok(RawMessage {
-            message_type,
-            payload: value.get(3..usize::from(length + 3)),
-        })
+        Ok(RawMessage::from_parts(message_type, value.get(3..usize::from(length + 3))))
     }
 }
 
@@ -185,8 +192,8 @@ pub enum Message<'r> {
     /// Message indicates presence of silence on the line.
     Silence,
 
-    /// Message contains signed linear, 16-bit, 8kHz, mono PCM (little-endian) audio payload.
-    Audio(&'r [u8]),
+    /// Message possibly contains signed linear, 16-bit, 8kHz, mono PCM (little-endian) audio payload.
+    Audio(Option<&'r [u8]>),
 
     /// Message indicates Asterisk error, and possibly contains [`ErrorType`].
     Error(Option<ErrorType>),
@@ -207,7 +214,7 @@ impl<'s> TryFrom<RawMessage<'s>> for Message<'s> {
             }
             Type::Silence => Ok(Message::Silence),
             Type::Audio => Ok(Message::Audio(
-                raw.payload.ok_or(AudioSocketError::EmptyPayload)?,
+                raw.payload,
             )),
             Type::Error => {
                 if let Some(code) = raw
@@ -246,15 +253,19 @@ impl TryFrom<Message<'_>> for Vec<u8> {
             }
             Message::Silence => Ok(Vec::from([Type::Silence.into(), 0x00, 0x00])),
             Message::Audio(a) => {
-                let mut buf = Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + a.len());
+                let len = a.as_ref().map(|audio| audio.len()).unwrap_or(0);
+                let mut buf = Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + len);
 
                 buf.push(Type::Audio.into());
                 buf.extend(
-                    &u16::try_from(a.len())
+                    &u16::try_from(len)
                         .map_err(AudioSocketError::LengthIsTooLarge)?
                         .to_be_bytes(),
                 );
-                buf.extend(a);
+
+                if let Some(audio) = a {
+                    buf.extend_from_slice(audio);
+                }
 
                 Ok(buf)
             }
@@ -341,7 +352,7 @@ mod tests {
             .try_into()
             .unwrap();
 
-        assert_eq!(msg, Message::Audio(&[0, 1, 2, 3, 4, 5, 6, 7]));
+        assert_eq!(msg, Message::Audio(Some(&[0, 1, 2, 3, 4, 5, 6, 7])));
         assert_eq!(TryInto::<Vec<u8>>::try_into(msg).unwrap(), audio.to_vec());
     }
 
