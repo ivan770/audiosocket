@@ -246,8 +246,8 @@ impl TryFrom<Message<'_>> for Vec<u8> {
                     Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + size_of::<u128>());
 
                 buf.push(Type::Identifier.into());
-                buf.extend(&u16::try_from(size_of::<u128>()).unwrap().to_be_bytes());
-                buf.extend(id.as_bytes().iter());
+                buf.extend_from_slice(&u16::try_from(size_of::<u128>()).unwrap().to_be_bytes());
+                buf.extend_from_slice(id.as_bytes());
 
                 Ok(buf)
             }
@@ -257,7 +257,7 @@ impl TryFrom<Message<'_>> for Vec<u8> {
                 let mut buf = Vec::with_capacity(size_of::<u8>() + size_of::<u16>() + len);
 
                 buf.push(Type::Audio.into());
-                buf.extend(
+                buf.extend_from_slice(
                     &u16::try_from(len)
                         .map_err(AudioSocketError::LengthIsTooLarge)?
                         .to_be_bytes(),
