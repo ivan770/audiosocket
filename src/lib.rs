@@ -364,9 +364,7 @@ mod tests {
 
         silence.push(0x10);
         silence.extend_from_slice(
-            &u16::try_from(320)
-                .unwrap()
-                .to_be_bytes(),
+            &320u16.to_be_bytes()
         );
         silence.extend_from_slice(&audio);
 
