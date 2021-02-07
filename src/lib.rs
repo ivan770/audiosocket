@@ -357,6 +357,29 @@ mod tests {
     }
 
     #[test]
+    fn audio_silence_test_cast() {
+        let audio = [0; 320];
+
+        let mut silence = Vec::with_capacity(323);
+
+        silence.push(0x10);
+        silence.extend_from_slice(
+            &u16::try_from(320)
+                .unwrap()
+                .to_be_bytes(),
+        );
+        silence.extend_from_slice(&audio);
+
+        let msg: Message = RawMessage::try_from(&silence[..])
+            .unwrap()
+            .try_into()
+            .unwrap();
+
+        assert_eq!(msg, Message::Audio(Some(&audio)));
+        assert_eq!(TryInto::<Vec<u8>>::try_into(msg).unwrap(), silence.to_vec());
+    }
+
+    #[test]
     fn error_cast_test() {
         let error = [0xffu8, 0, 1, 1];
 
